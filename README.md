@@ -146,4 +146,10 @@ APIの起動確認
 
 ---
 
+## 🔗 API Online
+
+✅ URL: [https://nindogoterbakar.onrender.com](https://nindogoterbakar.onrender.com)  
+🧪 Swagger Docs: [https://nindogoterbakar.onrender.com/docs](https://nindogoterbakar.onrender.com/docs)
+
+
 Selamat belajar & ngoding! ご利用ありがとうございます 🙇‍♀️
