@@ -1,14 +1,17 @@
 import os
-from fastapi import FastAPI
+import uuid
+import jaconv
+import tempfile
+import speech_recognition as sr
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from googletrans import Translator
 from sudachipy import dictionary, tokenizer
 from gtts import gTTS
-import uuid
 
-# ✅ Optional: set path dictionary Sudachi kalau perlu (Cloud Run / lokal Linux)
+# ✅ Optional: buat Linux/Cloud Run
 os.environ["SUDACHIDICT_DIR"] = "/usr/local/lib/python3.10/dist-packages/sudachidict_core"
 
 app = FastAPI()
@@ -32,73 +35,103 @@ class TranslateRequest(BaseModel):
     src: str = "id"
     dest: str = "ja"
 
-# ✨ Fungsi ubah ke bentuk keigo (-masu form)
-def to_keigo(text: str) -> str:
-    masu_endings = {
-        "aru": "あります",
-        "iru": "います",
-        "iku": "行きます",
-        "ru": "ます",
-    }
+# ✨ Convert hasil Japanese ke keigo (-masu form) dengan Sudachi
+def force_teinei_form(japanese_text: str) -> str:
+    tokens = tokenizer_obj.tokenize(japanese_text, tokenizer.Tokenizer.SplitMode.C)
+    converted = []
+    for token in tokens:
+        surface = token.surface()
+        pos = token.part_of_speech()
+        if pos[0] == "動詞":  # Verb
+            if surface.endswith("る"):
+                surface = surface[:-1] + "ます"
+            elif surface in ["する", "くる"]:
+                surface = {"する": "します", "くる": "きます"}[surface]
+        converted.append(surface)
+    return "".join(converted)
 
-    words = text.split()
-    for i in range(len(words)):
-        word = words[i]
-        if word.endswith("aru"):
-            words[i] = word[:-3] + masu_endings["aru"]
-        elif word.endswith("iru"):
-            words[i] = word[:-3] + masu_endings["iru"]
-        elif word.endswith("iku"):
-            words[i] = word[:-3] + masu_endings["iku"]
-        elif word.endswith("ru"):
-            words[i] = word[:-2] + masu_endings["ru"]
-
-    return " ".join(words)
-
-# 🔧 Pastikan input-nya selalu string
+# 🔧 Force string
 def convert_to_string(text) -> str:
     return str(text) if not isinstance(text, str) else text
 
-# 📦 Endpoint utama
 @app.post("/translate_and_analyze")
 async def translate_and_analyze(request: TranslateRequest):
     text = convert_to_string(request.text)
-    src = request.src
-    dest = request.dest
+    src = request.src.lower()
+    dest = request.dest.lower()
 
-    result = translator.translate(text, src=src, dest=dest)
-    translated_text = result.text
+    if src == "ja":
+        is_romaji = all(ord(c) < 128 and (c.isalnum() or c.isspace()) for c in text)
+        if is_romaji:
+            kana_text = jaconv.alphabet2kana(text)
+        else:
+            kana_text = text
 
-    if dest == "ja":
-        translated_text_keigo = to_keigo(translated_text)
+        japanese_text = kana_text
+        translated = translator.translate(japanese_text, src="ja", dest="id")
+        final_translation = translated.text
     else:
-        translated_text_keigo = translated_text
+        translated = translator.translate(text, src=src, dest="ja")
+        japanese_text = translated.text
+        japanese_text = force_teinei_form(japanese_text)
 
-    tokens = []
-    if dest == "ja":
-        for m in tokenizer_obj.tokenize(translated_text_keigo, tokenizer.Tokenizer.SplitMode.C):
-            tokens.append({
-                "surface": m.surface(),
-                "pos": ",".join(m.part_of_speech()),
-                "dictionary_form": m.dictionary_form(),
-                "reading": m.reading_form()
-            })
+        if dest == "ja":
+            final_translation = japanese_text
+        else:
+            result_back = translator.translate(japanese_text, src="ja", dest=dest)
+            final_translation = result_back.text
+
+    romaji_list = []
+    breakdown = []
+    for token in tokenizer_obj.tokenize(japanese_text, tokenizer.Tokenizer.SplitMode.C):
+        surface = token.surface()
+        reading = token.reading_form()
+        hira = jaconv.kata2hira(reading)
+        romaji = jaconv.kana2alphabet(hira)
+        romaji_list.append(romaji)
+        breakdown.append({
+            "surface": surface,
+            "furigana": hira,
+            "romaji": romaji
+        })
+
+    romaji_output = " ".join(romaji_list)
 
     return JSONResponse(
         content={
-            "translated_text": translated_text_keigo,
-            "tokens": tokens
+            "translated_text": final_translation,
+            "japanese_text": japanese_text,
+            "romaji": romaji_output,
+            "breakdown": breakdown
         },
         media_type="application/json; charset=utf-8"
     )
 
-# 🔊 Endpoint Text-to-Speech
+# 🔊 TTS
 @app.post("/speak")
 async def speak_text(request: TranslateRequest):
     text = convert_to_string(request.text)
-
     filename = f"{uuid.uuid4()}.mp3"
     tts = gTTS(text=text, lang=request.dest)
     tts.save(filename)
-
     return FileResponse(filename, media_type="audio/mpeg", filename="speak.mp3")
+
+# 🗣️ STT (Speech to Text)
+@app.post("/speech_to_text")
+async def speech_to_text(audio: UploadFile = File(...)):
+    recognizer = sr.Recognizer()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(await audio.read())
+        tmp_path = tmp.name
+
+    with sr.AudioFile(tmp_path) as source:
+        audio_data = recognizer.record(source)
+        try:
+            text = recognizer.recognize_google(audio_data, language="ja-JP")
+        except sr.UnknownValueError:
+            text = "Tidak bisa dikenali."
+        except sr.RequestError as e:
+            text = f"Error dari API Google: {e}"
+
+    os.remove(tmp_path)
+    return {"recognized_text": text}
