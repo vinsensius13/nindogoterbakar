@@ -6,3 +6,4 @@ sudachidict-core
 gTTS
 SpeechRecognition
 jaconv
+python-multipart
