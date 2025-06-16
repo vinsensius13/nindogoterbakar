@@ -1,5 +1,6 @@
 import os
 import uuid
+import re
 import jaconv
 import tempfile
 import speech_recognition as sr
@@ -54,13 +55,17 @@ def force_teinei_form(japanese_text: str) -> str:
 def convert_to_string(text) -> str:
     return str(text) if not isinstance(text, str) else text
 
-# 🧠 Cek numerik (buat filtering furigana/romaji)
+# 🔍 Cek numerik
 def is_number(text):
     try:
-        float(text.replace(",", "").replace("．", ".").replace("・", "."))  # handle 15.00 dan simbol aneh
+        float(text.replace(",", "").replace("．", ".").replace("・", "."))
         return True
     except ValueError:
         return False
+
+# 🔍 Cek apakah bentuk waktu seperti 15:00, 07.30, dst
+def is_time_format(text):
+    return bool(re.match(r'^\d{1,2}[:.]\d{2}$', text))
 
 @app.post("/translate_and_analyze")
 async def translate_and_analyze(request: TranslateRequest):
@@ -94,7 +99,8 @@ async def translate_and_analyze(request: TranslateRequest):
 
     for token in tokenizer_obj.tokenize(japanese_text, tokenizer.Tokenizer.SplitMode.C):
         surface = token.surface()
-        if is_number(surface):
+
+        if is_number(surface) or is_time_format(surface):
             breakdown.append({
                 "surface": surface,
                 "furigana": "",
