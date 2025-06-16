@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# Env & Secrets
+.env
+*.env
+venv/
+.venv/
+env/
+ENV/
+*.sqlite3
+*.db
+*.pkl
+
+# macOS
+.DS_Store
+
+# VSCode
+.vscode/
+.history/
+
+# System Files
+Thumbs.db
+desktop.ini
+
+# Audio & TTS Output
+*.mp3
+*.wav
+*.ogg
+
+# Temporary
+*.tmp
+*.bak
+*.swp
+*.swo
+*.old
+*.zip
+*.tar.gz
+*.tar
+*.rar
+
+# PyInstaller
+*.spec
+
+# Jupyter Notebook
+.ipynb_checkpoints/

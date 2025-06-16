@@ -54,6 +54,14 @@ def force_teinei_form(japanese_text: str) -> str:
 def convert_to_string(text) -> str:
     return str(text) if not isinstance(text, str) else text
 
+# 🧠 Cek numerik (buat filtering furigana/romaji)
+def is_number(text):
+    try:
+        float(text.replace(",", "").replace("．", ".").replace("・", "."))  # handle 15.00 dan simbol aneh
+        return True
+    except ValueError:
+        return False
+
 @app.post("/translate_and_analyze")
 async def translate_and_analyze(request: TranslateRequest):
     text = convert_to_string(request.text)
@@ -83,17 +91,26 @@ async def translate_and_analyze(request: TranslateRequest):
 
     romaji_list = []
     breakdown = []
+
     for token in tokenizer_obj.tokenize(japanese_text, tokenizer.Tokenizer.SplitMode.C):
         surface = token.surface()
-        reading = token.reading_form()
-        hira = jaconv.kata2hira(reading)
-        romaji = jaconv.kana2alphabet(hira)
-        romaji_list.append(romaji)
-        breakdown.append({
-            "surface": surface,
-            "furigana": hira,
-            "romaji": romaji
-        })
+        if is_number(surface):
+            breakdown.append({
+                "surface": surface,
+                "furigana": "",
+                "romaji": ""
+            })
+            romaji_list.append(surface)
+        else:
+            reading = token.reading_form()
+            hira = jaconv.kata2hira(reading)
+            romaji = jaconv.kana2alphabet(hira)
+            breakdown.append({
+                "surface": surface,
+                "furigana": hira,
+                "romaji": romaji
+            })
+            romaji_list.append(romaji)
 
     romaji_output = " ".join(romaji_list)
 
